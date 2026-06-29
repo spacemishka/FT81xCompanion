@@ -1,6 +1,6 @@
 # FT81xCompanion 📻✨
 
-**FT81xCompanion** self-contained Android companion application for the legendary **Yaesu FT-817 & FT-818** QRP transceivers. Designed for portability, field operation (SOTA, POTA), and satellite tracking, it bridges the gap between classic hardware and modern mobile design.
+**FT81xCompanion** is a premium, self-contained Android companion application for the legendary **Yaesu FT-817 & FT-818** QRP transceivers. Designed for portability, field operation (SOTA, POTA), and satellite tracking, it bridges the gap between classic hardware and modern mobile design.
 
 This app is built using **Jetpack Compose**, **Kotlin Coroutines**, and **Kotlin StateFlows** — focusing on thread-safety, security, and a beautiful glowing dark-mode UI.
 
@@ -19,7 +19,8 @@ This app is built using **Jetpack Compose**, **Kotlin Coroutines**, and **Kotlin
 
 ### 🔍 3. Smart-Scan Band Scanner
 *   **Squelch-Aware Stepping**: Sweeps VFO frequencies sequentially over a configurable MHz range and step size (5 kHz to 100 kHz).
-*   **Auto-Pause Squelch Watchdog**: Queries the transceiver status byte and pauses the sweep instantly when the squelch opens (signal detected).
+*   **Squelch Threshold Filter**: Configurable minimum S-Meter threshold (S0 to S9). The scanner only pauses if squelch opens and signal strength matches or exceeds the selected level, preventing stops on weak background static.
+*   **Configurable Dwell Speed**: Supports dwell rates from 50 ms (Fast) to 1.0 s, combined with a minimized 20 ms frequency lock settle delay for optimized, rapid band sweeps.
 *   **1.5s Hang-Time Delay**: Wait for a short duration after a signal fades before resuming the sweep, preventing transmission fragmentation.
 
 ### 🛡️ 4. QRP Transceiver Safety Guard

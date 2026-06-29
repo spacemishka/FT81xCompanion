@@ -489,8 +489,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
         boundService?.disconnectDevice()
     }
 
-    fun startBandScan(startHz: Long, endHz: Long, stepHz: Long, dwellMs: Long) {
-        boundService?.startScan(startHz, endHz, stepHz, dwellMs)
+    fun startBandScan(startHz: Long, endHz: Long, stepHz: Long, dwellMs: Long, squelchThreshold: Int) {
+        boundService?.startScan(startHz, endHz, stepHz, dwellMs, squelchThreshold)
     }
 
     fun stopBandScan() {
@@ -708,7 +708,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
                 val current = _dxSpots.value.toMutableList()
                 current.add(0, spot) // insert at top
                 if (current.size > 100) {
-                    current.removeLast() // keep max 100 spots
+                    current.removeAt(current.size - 1) // keep max 100 spots
                 }
                 _dxSpots.value = current
             }

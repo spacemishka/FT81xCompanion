@@ -59,7 +59,8 @@ data class RadioState(
     val scanStartFreqHz: Long = 144000000L,
     val scanEndFreqHz: Long = 146000000L,
     val scanStepHz: Long = 12500L,
-    val scanDwellMs: Long = 300L
+    val scanDwellMs: Long = 300L,
+    val scanSquelchThreshold: Int = 0
 )
 
 data class ManualKeyEvent(
@@ -291,7 +292,7 @@ class CatForegroundService : Service() {
 
     // Smart-Scan: Software-Defined Band Scanner Engine
 
-    fun startScan(startHz: Long, endHz: Long, stepHz: Long, dwellMs: Long) {
+    fun startScan(startHz: Long, endHz: Long, stepHz: Long, dwellMs: Long, squelchThreshold: Int) {
         if (connectionState.value != ConnectionState.CONNECTED) return
         stopScan()
         stopPolling()
@@ -302,7 +303,8 @@ class CatForegroundService : Service() {
             scanStartFreqHz = startHz,
             scanEndFreqHz = endHz,
             scanStepHz = stepHz,
-            scanDwellMs = dwellMs
+            scanDwellMs = dwellMs,
+            scanSquelchThreshold = squelchThreshold
         )
 
         scanJob = serviceScope.launch(Dispatchers.IO) {
@@ -321,26 +323,35 @@ class CatForegroundService : Service() {
                     }
 
                     // Settle delay
-                    delay(50)
+                    delay(20)
 
-                    // Step 2. Read Squelch status
+                    // Step 2. Read Squelch status and S-Meter
                     var sqOpen = false
+                    var currentSMeter = 0
                     val statusBytes = sendCommandSuspend(CatProtocol.buildReadRxStatus(), 1)
                     if (statusBytes != null && statusBytes.isNotEmpty()) {
                         val b = statusBytes[0].toInt() and 0xFF
                         sqOpen = (b and 0x80) != 0
+                        currentSMeter = b and 0x0F
                     }
 
-                    if (sqOpen) {
+                    val shouldPause = sqOpen && (currentSMeter >= squelchThreshold)
+
+                    if (shouldPause) {
                         _radioState.value = _radioState.value.copy(isScanPausedOnSignal = true)
                         
-                        // Wait on this frequency until squelch closes
-                        while (sqOpen && isActive) {
+                        // Wait on this frequency until squelch closes or signal drops below threshold
+                        var stillActive = true
+                        while (stillActive && isActive) {
                             delay(200)
                             val checkBytes = sendCommandSuspend(CatProtocol.buildReadRxStatus(), 1)
                             if (checkBytes != null && checkBytes.isNotEmpty()) {
                                 val b = checkBytes[0].toInt() and 0xFF
-                                sqOpen = (b and 0x80) != 0
+                                val checkSq = (b and 0x80) != 0
+                                val checkSMeter = b and 0x0F
+                                stillActive = checkSq && (checkSMeter >= squelchThreshold)
+                            } else {
+                                stillActive = false
                             }
                         }
                         

@@ -286,7 +286,8 @@ fun DashboardScreen(viewModel: MainViewModel) {
                     var startFreqText by remember { mutableStateOf((radioState.scanStartFreqHz / 1_000_000.0).toString()) }
                     var endFreqText by remember { mutableStateOf((radioState.scanEndFreqHz / 1_000_000.0).toString()) }
                     var selectedStepHz by remember { mutableStateOf(radioState.scanStepHz) }
-                    val selectedDwellMs by remember { mutableStateOf(radioState.scanDwellMs) }
+                    var selectedDwellMs by remember { mutableStateOf(radioState.scanDwellMs) }
+                    var selectedSquelchThreshold by remember { mutableStateOf(radioState.scanSquelchThreshold) }
                     var showStepDropdown by remember { mutableStateOf(false) }
 
                     Row(
@@ -365,6 +366,90 @@ fun DashboardScreen(viewModel: MainViewModel) {
                         }
                     }
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "Dwell Time", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Box {
+                            var showDwellDropdown by remember { mutableStateOf(false) }
+                            val dwellLabels = mapOf(
+                                50L to "50 ms (Fast)",
+                                100L to "100 ms",
+                                200L to "200 ms",
+                                300L to "300 ms (Default)",
+                                500L to "500 ms",
+                                1000L to "1.0 sec"
+                            )
+                            Button(
+                                onClick = { showDwellDropdown = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = RadioPanel),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) {
+                                Text(text = dwellLabels[selectedDwellMs] ?: "300 ms", color = RadioOrange, fontSize = 12.sp)
+                            }
+                            DropdownMenu(
+                                expanded = showDwellDropdown,
+                                onDismissRequest = { showDwellDropdown = false },
+                                modifier = Modifier.background(RadioPanel)
+                            ) {
+                                dwellLabels.forEach { (dwellTimeMs, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(text = label, color = Color.White) },
+                                        onClick = {
+                                            selectedDwellMs = dwellTimeMs
+                                            showDwellDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "Squelch Threshold", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Box {
+                            var showSquelchDropdown by remember { mutableStateOf(false) }
+                            val squelchLabels = mapOf(
+                                0 to "S0 (Any Signal)",
+                                1 to "S1",
+                                3 to "S3",
+                                5 to "S5",
+                                7 to "S7",
+                                9 to "S9"
+                            )
+                            Button(
+                                onClick = { showSquelchDropdown = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = RadioPanel),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) {
+                                Text(text = squelchLabels[selectedSquelchThreshold] ?: "S0", color = RadioOrange, fontSize = 12.sp)
+                            }
+                            DropdownMenu(
+                                expanded = showSquelchDropdown,
+                                onDismissRequest = { showSquelchDropdown = false },
+                                modifier = Modifier.background(RadioPanel)
+                            ) {
+                                squelchLabels.forEach { (threshold, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(text = label, color = Color.White) },
+                                        onClick = {
+                                            selectedSquelchThreshold = threshold
+                                            showSquelchDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Start/Stop Action Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -378,7 +463,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
                                 } else {
                                     val startHz = (startFreqText.toDoubleOrNull() ?: 144.0) * 1_000_000
                                     val endHz = (endFreqText.toDoubleOrNull() ?: 146.0) * 1_000_000
-                                    viewModel.startBandScan(startHz.toLong(), endHz.toLong(), selectedStepHz, selectedDwellMs)
+                                    viewModel.startBandScan(startHz.toLong(), endHz.toLong(), selectedStepHz, selectedDwellMs, selectedSquelchThreshold)
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(
@@ -534,10 +619,9 @@ fun DashboardScreen(viewModel: MainViewModel) {
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    
-                    // Display frequency entry formatted
+                                     // Display frequency entry formatted
                     Text(
-                        text = if (entryText.isEmpty()) "0 Hz" else "${entryText} Hz",
+                        text = if (entryText.isEmpty()) "0.0 MHz" else "${entryText} MHz",
                         color = Color.White,
                         fontSize = 24.sp,
                         fontFamily = FontFamily.Monospace,
@@ -545,7 +629,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
                     )
 
                     // Numeric grid pad
-                    val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "C", "0", "OK")
+                    val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "C")
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -553,19 +637,17 @@ fun DashboardScreen(viewModel: MainViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         items(keys) { key ->
-                            Button(
+                             Button(
                                 onClick = {
                                     when (key) {
                                         "C" -> entryText = ""
-                                        "OK" -> {
-                                            val hz = entryText.toLongOrNull()
-                                            if (hz != null && hz in 100000L..470000000L) {
-                                                viewModel.setFrequency(hz)
-                                                showDirectEntryDialog = false
+                                        "." -> {
+                                            if (!entryText.contains(".") && entryText.isNotEmpty()) {
+                                                entryText += "."
                                             }
                                         }
                                         else -> {
-                                            if (entryText.length < 9) {
+                                            if (entryText.length < 10) {
                                                 entryText += key
                                             }
                                         }
@@ -577,16 +659,42 @@ fun DashboardScreen(viewModel: MainViewModel) {
                             ) {
                                 Text(
                                     text = key,
-                                    color = if (key == "OK") RadioOrange else Color.White,
-                                    fontSize = 16.sp,
+                                    color = if (key == ".") RadioOrange else Color.White,
+                                    fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                     }
                     
-                    TextButton(onClick = { showDirectEntryDialog = false }) {
-                        Text(text = "CANCEL", color = Color.Gray)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TextButton(
+                            onClick = { showDirectEntryDialog = false },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = "CANCEL", color = Color.Gray)
+                        }
+                        
+                        Button(
+                            onClick = {
+                                val mhzVal = entryText.toDoubleOrNull()
+                                if (mhzVal != null) {
+                                    val hz = (mhzVal * 1_000_000).toLong()
+                                    if (hz in 100000L..470000000L) {
+                                        viewModel.setFrequency(hz)
+                                        showDirectEntryDialog = false
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = RadioOrange),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = "OK", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
