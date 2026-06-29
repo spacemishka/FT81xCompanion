@@ -160,4 +160,19 @@ object CatProtocol {
     fun buildReadTxStatus(): ByteArray = byteArrayOf(0, 0, 0, 0, OP_READ_TX_STATUS)
     
     fun buildReadPttState(): ByteArray = byteArrayOf(0, 0, 0, 0, OP_READ_PTT_STATE)
+
+    fun formatMode(mode: Byte): String {
+        return when (mode) {
+            MODE_LSB -> "LSB"
+            MODE_USB -> "USB"
+            MODE_CW -> "CW"
+            MODE_CW_R -> "CW-R"
+            MODE_AM -> "AM"
+            MODE_WFM -> "WFM"
+            MODE_FM -> "FM"
+            MODE_DIG -> "DIG"
+            MODE_PKT -> "PKT"
+            else -> "UNKNOWN"
+        }
+    }
 }

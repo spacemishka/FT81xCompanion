@@ -5,7 +5,9 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.util.Log
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,7 +46,7 @@ class CatPort {
     private val ioMutex = Mutex()
 
     @SuppressLint("MissingPermission")
-    suspend fun connect(deviceAddress: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun connect(context: Context, deviceAddress: String): Boolean = withContext(Dispatchers.IO) {
         ioMutex.withLock {
             if (_connectionState.value == ConnectionState.CONNECTED) {
                 return@withLock true
@@ -54,8 +56,8 @@ class CatPort {
             _errorMessage.value = null
             Log.d(TAG, "Connecting to $deviceAddress...")
 
-            @Suppress("DEPRECATION")
-            val adapter = BluetoothAdapter.getDefaultAdapter()
+            val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+            val adapter = bluetoothManager?.adapter
             if (adapter == null || !adapter.isEnabled) {
                 _connectionState.value = ConnectionState.ERROR
                 _errorMessage.value = "Bluetooth is disabled or unavailable"
@@ -106,18 +108,20 @@ class CatPort {
     }
 
     fun closeSocket() {
-        try {
-            inputStream?.close()
-        } catch (ignored: Exception) {}
-        try {
-            outputStream?.close()
-        } catch (ignored: Exception) {}
-        try {
-            bluetoothSocket?.close()
-        } catch (ignored: Exception) {}
-        inputStream = null
-        outputStream = null
-        bluetoothSocket = null
+        synchronized(this) {
+            try {
+                inputStream?.close()
+            } catch (ignored: Exception) {}
+            try {
+                outputStream?.close()
+            } catch (ignored: Exception) {}
+            try {
+                bluetoothSocket?.close()
+            } catch (ignored: Exception) {}
+            inputStream = null
+            outputStream = null
+            bluetoothSocket = null
+        }
     }
 
     /**
@@ -180,8 +184,8 @@ class CatPort {
                         }
                         bytesRead += read
                     } else {
-                        // Small sleep to avoid spinning
-                        Thread.sleep(5)
+                        // Small delay to avoid spinning
+                        delay(5)
                     }
                 }
                 response

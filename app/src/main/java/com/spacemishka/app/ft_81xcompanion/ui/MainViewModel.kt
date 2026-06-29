@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -54,6 +55,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
     private val satEngine = SatelliteEngine()
     private val dxClient = DxClusterClient(viewModelScope)
     private val locationManager = application.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    private val prefs = application.getSharedPreferences("ft818_companion_prefs", Context.MODE_PRIVATE)
 
     // Service binding state
     private var boundService: CatForegroundService? = null
@@ -61,9 +63,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
     val isServiceBound: StateFlow<Boolean> = _isServiceBound.asStateFlow()
 
     // Radio State flows mirrored from service
-    val radioState = MutableStateFlow(RadioState())
-    val connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
-    val connectError = MutableStateFlow<String?>(null)
+    private val _radioState = MutableStateFlow(RadioState())
+    val radioState: StateFlow<RadioState> = _radioState.asStateFlow()
+
+    private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
+    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    private val _connectError = MutableStateFlow<String?>(null)
+    val connectError: StateFlow<String?> = _connectError.asStateFlow()
 
     // Database states
     var qsoList by mutableStateOf<List<Qso>>(emptyList())
@@ -84,13 +91,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
         ),
         Tle(
             "SO-50 (SAUDI-OSCAR 50)",
-            "1 27607U 02058C   26175.50000000  .00000084  00000-0  10000-3 0  9994",
-            "2 27607  64.5582 123.4567 0081234  45.6789 314.3210 14.71234567 12345"
+            "1 27607U 02058C 26179.14668935 .00000900 00000-0 12341-3 0  9997",
+            "2 27607  64.5520  95.0771 0075004 260.4298  98.8327 14.83068697266083"
         ),
         Tle(
             "AO-91 (RADFXSAT)",
-            "1 43017U 17073B   26175.50000000  .00000123  00000-0  20000-3 0  9998",
-            "2 43017  97.8765 234.5678 0123456  67.8901 292.1234 14.81234567 12345"
+            "1 43017U 17073E 26179.58479444 .00006671 00000-0 29239-3 0  9991",
+            "2 43017  97.4690  46.5670 0148535 289.4918  69.0319 15.12867010467115"
         )
     )
     
@@ -104,11 +111,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
     var satUplinkFreqHz by mutableStateOf(145990000L)   // 2m
 
     // Settings States
-    var pollingIntervalMs by mutableStateOf(500L)
-    var myCallsign by mutableStateOf("NOCALL")
+    private val _pollingIntervalMs = mutableStateOf(prefs.getLong("polling_interval_ms", 500L))
+    var pollingIntervalMs: Long
+        get() = _pollingIntervalMs.value
+        set(value) {
+            _pollingIntervalMs.value = value
+            prefs.edit().putLong("polling_interval_ms", value).apply()
+        }
+
+    private val _myCallsign = mutableStateOf(prefs.getString("my_callsign", "NOCALL") ?: "NOCALL")
+    var myCallsign: String
+        get() = _myCallsign.value
+        set(value) {
+            _myCallsign.value = value
+            prefs.edit().putString("my_callsign", value).apply()
+        }
+
     var dxServerAddress by mutableStateOf("dxc.nc7j.com")
     var dxServerPort by mutableStateOf(7373)
-    var lastConnectedMacAddress by mutableStateOf("")
+
+    private val _lastConnectedMacAddress = mutableStateOf(prefs.getString("last_connected_mac", "") ?: "")
+    var lastConnectedMacAddress: String
+        get() = _lastConnectedMacAddress.value
+        set(value) {
+            _lastConnectedMacAddress.value = value
+            prefs.edit().putString("last_connected_mac", value).apply()
+        }
+
+    // Morse / CW settings (E2)
+    private val _morseWpm = mutableStateOf(prefs.getFloat("morse_wpm", 15f))
+    var morseWpm: Float
+        get() = _morseWpm.value
+        set(value) {
+            _morseWpm.value = value
+            prefs.edit().putFloat("morse_wpm", value).apply()
+        }
+
+    private val _morseFarnsworthWpm = mutableStateOf(prefs.getFloat("morse_farnsworth_wpm", 15f))
+    var morseFarnsworthWpm: Float
+        get() = _morseFarnsworthWpm.value
+        set(value) {
+            _morseFarnsworthWpm.value = value
+            prefs.edit().putFloat("morse_farnsworth_wpm", value).apply()
+        }
+
+    private val _morseSidetoneFreq = mutableStateOf(prefs.getFloat("morse_sidetone_freq", 700f))
+    var morseSidetoneFreq: Float
+        get() = _morseSidetoneFreq.value
+        set(value) {
+            _morseSidetoneFreq.value = value
+            prefs.edit().putFloat("morse_sidetone_freq", value).apply()
+        }
 
     private var satelliteJob: Job? = null
     private var serviceCollectorJob: Job? = null
@@ -125,17 +178,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
             serviceCollectorJob = viewModelScope.launch {
                 launch {
                     s.radioState.collect { state ->
-                        radioState.value = state
+                        _radioState.value = state
                     }
                 }
                 launch {
                     s.connectionState.collect { state ->
-                        connectionState.value = state
+                        _connectionState.value = state
                     }
                 }
                 launch {
                     s.errorMessage.collect { error ->
-                        connectError.value = error
+                        _connectError.value = error
                     }
                 }
             }
@@ -191,7 +244,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
             val newQso = Qso(
                 timestamp = formatter.format(Date()),
                 frequencyHz = radioState.value.frequencyHz,
-                mode = formatMode(radioState.value.mode),
+                mode = CatProtocol.formatMode(radioState.value.mode),
                 callsign = callsign,
                 rstSent = rstSent,
                 rstRcvd = rstRcvd,
@@ -300,12 +353,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
         boundService?.powerOff()
     }
 
+    // Morse controls forwarded to service
+
+    fun transmitMorse(text: String, wpm: Int, farnsworthWpm: Int, sidetoneFreqHz: Int, keyRadio: Boolean, playSound: Boolean) {
+        boundService?.transmitMorse(text, wpm, farnsworthWpm, sidetoneFreqHz, keyRadio, playSound)
+    }
+
+    fun stopMorse() {
+        boundService?.stopMorse()
+    }
+
+    fun setManualKey(pressed: Boolean, keyRadio: Boolean, playSound: Boolean, sidetoneFreqHz: Int) {
+        boundService?.setManualKey(pressed, keyRadio, playSound, sidetoneFreqHz)
+    }
+
+    fun pausePolling() {
+        boundService?.pausePolling()
+    }
+
+    fun resumePolling() {
+        boundService?.resumePolling()
+    }
+
     // Bluetooth Device Scanning
 
     @SuppressLint("MissingPermission")
     fun getPairedDevices(): List<BluetoothDevice> {
-        @Suppress("DEPRECATION")
-        val adapter = BluetoothAdapter.getDefaultAdapter()
+        val bluetoothManager = getApplication<Application>().getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        val adapter = bluetoothManager?.adapter
         return if (adapter != null && adapter.isEnabled) {
             try {
                 adapter.bondedDevices.toList()
@@ -418,21 +493,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
     }
 
     // Utilities
-
-    private fun formatMode(modeByte: Byte): String {
-        return when (modeByte) {
-            CatProtocol.MODE_LSB -> "LSB"
-            CatProtocol.MODE_USB -> "USB"
-            CatProtocol.MODE_CW -> "CW"
-            CatProtocol.MODE_CW_R -> "CW-R"
-            CatProtocol.MODE_AM -> "AM"
-            CatProtocol.MODE_WFM -> "WFM"
-            CatProtocol.MODE_FM -> "FM"
-            CatProtocol.MODE_DIG -> "DIG"
-            CatProtocol.MODE_PKT -> "PKT"
-            else -> "UNKNOWN"
-        }
-    }
 
     override fun onCleared() {
         super.onCleared()

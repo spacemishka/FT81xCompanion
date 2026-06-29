@@ -27,6 +27,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.channels.Channel
 import java.util.Locale
 
 data class RadioState(
@@ -43,7 +47,17 @@ data class RadioState(
     val toneMode: Byte = CatProtocol.TONE_MODE_OFF,
     val ctcssFreqHz: Double = 88.5,
     val dcsCode: Int = 23,
-    val repeaterOffsetDir: Byte = CatProtocol.RPT_DIR_SIMPLEX
+    val repeaterOffsetDir: Byte = CatProtocol.RPT_DIR_SIMPLEX,
+    val isMorseActive: Boolean = false,
+    val morseText: String = "",
+    val morseCurrentCharIndex: Int = -1
+)
+
+data class ManualKeyEvent(
+    val pressed: Boolean,
+    val keyRadio: Boolean,
+    val playSound: Boolean,
+    val sidetoneFreqHz: Int
 )
 
 class CatForegroundService : Service() {
@@ -62,6 +76,9 @@ class CatForegroundService : Service() {
     
     private var pollingJob: Job? = null
     private var pttTimeoutJob: Job? = null
+    private var morseJob: Job? = null
+    private val sidetonePlayer by lazy { MorseSidetonePlayer(applicationContext) }
+    private val manualKeyChannel = Channel<ManualKeyEvent>(Channel.UNLIMITED)
     private var pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
 
     private val _radioState = MutableStateFlow(RadioState())
@@ -79,6 +96,7 @@ class CatForegroundService : Service() {
         Log.d(TAG, "Service onCreate")
         createNotificationChannel()
         observeConnectionState()
+        startManualKeyProcessor()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -99,6 +117,8 @@ class CatForegroundService : Service() {
                 catPort.sendCommand(CatProtocol.buildPttOff(), 1)
             }
         }
+        sidetonePlayer.release()
+        manualKeyChannel.close()
         serviceScope.cancel()
         catPort.closeSocket()
         super.onDestroy()
@@ -108,7 +128,7 @@ class CatForegroundService : Service() {
 
     fun connectDevice(address: String) {
         serviceScope.launch {
-            catPort.connect(address)
+            catPort.connect(this@CatForegroundService, address)
         }
     }
 
@@ -206,8 +226,149 @@ class CatForegroundService : Service() {
         }
     }
 
+    // Morse / CW Keyer Controls
+
+    fun transmitMorse(
+        text: String,
+        wpm: Int,
+        farnsworthWpm: Int,
+        sidetoneFreqHz: Int,
+        keyRadio: Boolean,
+        playSound: Boolean
+    ) {
+        val oldJob = morseJob
+        sidetonePlayer.setFrequency(sidetoneFreqHz.toDouble())
+
+        morseJob = serviceScope.launch(Dispatchers.IO) {
+            oldJob?.cancelAndJoin()
+            val originalPollingState = pollingJob != null
+            if (keyRadio) {
+                // Pause polling to avoid CAT timing jitter
+                stopPolling()
+                // Force PTT OFF at the beginning to be safe
+                catPort.sendCommand(CatProtocol.buildPttOff(), 1)
+            }
+
+            val upperText = text.uppercase(Locale.US)
+            _radioState.value = _radioState.value.copy(
+                isMorseActive = true,
+                morseText = upperText,
+                morseCurrentCharIndex = 0
+            )
+
+            val charUnitMs = 1200L / farnsworthWpm
+            val wpmUnitMs = 1200L / wpm
+
+            val charSpaceMs = Math.max(charUnitMs, 3 * wpmUnitMs - charUnitMs)
+            val wordSpaceMs = Math.max(charUnitMs * 4, 7 * wpmUnitMs - charSpaceMs - charUnitMs)
+
+            try {
+                for (i in upperText.indices) {
+                    _radioState.value = _radioState.value.copy(morseCurrentCharIndex = i)
+                    val char = upperText[i]
+                    if (char == ' ') {
+                        // Word space spacing
+                        delay(wordSpaceMs)
+                        continue
+                    }
+
+                    val code = MorseTranslator.getMorse(char)
+                    if (code == null) {
+                        // Unknown characters generate a small gap
+                        delay(charUnitMs * 2)
+                        continue
+                    }
+
+                    for (j in code.indices) {
+                        val symbol = code[j]
+                        val symbolDuration = if (symbol == '.') charUnitMs else charUnitMs * 3
+
+                        // Turn on keying
+                        if (playSound) sidetonePlayer.start()
+                        if (keyRadio && connectionState.value == ConnectionState.CONNECTED) {
+                            catPort.sendCommand(CatProtocol.buildPttOn(), 1)
+                        }
+
+                        // Wait for symbol duration
+                        delay(symbolDuration)
+
+                        // Turn off keying
+                        if (playSound) sidetonePlayer.stop()
+                        if (keyRadio && connectionState.value == ConnectionState.CONNECTED) {
+                            catPort.sendCommand(CatProtocol.buildPttOff(), 1)
+                        }
+
+                        // Element space is 1 unit
+                        delay(charUnitMs)
+                    }
+
+                    // Character space spacing
+                    delay(charSpaceMs)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Morse transmission interrupted", e)
+            } finally {
+                withContext(NonCancellable) {
+                    // Cleanup keying state
+                    sidetonePlayer.stop()
+                    if (keyRadio) {
+                        catPort.sendCommand(CatProtocol.buildPttOff(), 1)
+                        if (originalPollingState) {
+                            startPolling()
+                        }
+                    }
+                    _radioState.value = _radioState.value.copy(
+                        isMorseActive = false,
+                        morseText = "",
+                        morseCurrentCharIndex = -1
+                    )
+                }
+            }
+        }
+    }
+
+    fun stopMorse() {
+        morseJob?.cancel()
+    }
+
+    fun setManualKey(pressed: Boolean, keyRadio: Boolean, playSound: Boolean, sidetoneFreqHz: Int) {
+        manualKeyChannel.trySend(ManualKeyEvent(pressed, keyRadio, playSound, sidetoneFreqHz))
+    }
+
+    private fun startManualKeyProcessor() {
+        serviceScope.launch(Dispatchers.IO) {
+            for (event in manualKeyChannel) {
+                if (event.pressed) {
+                    sidetonePlayer.setFrequency(event.sidetoneFreqHz.toDouble())
+                    if (event.playSound) sidetonePlayer.start()
+                    if (event.keyRadio && connectionState.value == ConnectionState.CONNECTED) {
+                        catPort.sendCommand(CatProtocol.buildPttOn(), 1)
+                    }
+                } else {
+                    if (event.playSound) sidetonePlayer.stop()
+                    if (event.keyRadio && connectionState.value == ConnectionState.CONNECTED) {
+                        catPort.sendCommand(CatProtocol.buildPttOff(), 1)
+                    }
+                }
+            }
+        }
+    }
+
+    fun pausePolling() {
+        stopPolling()
+    }
+
+    fun resumePolling() {
+        if (connectionState.value == ConnectionState.CONNECTED) {
+            startPolling()
+        }
+    }
+
     fun setPollInterval(intervalMs: Long) {
         pollIntervalMs = intervalMs
+        if (pollingJob != null && connectionState.value == ConnectionState.CONNECTED) {
+            startPolling(forceRestart = true)
+        }
     }
 
     // Low-Level Command Helper
@@ -217,7 +378,7 @@ class CatForegroundService : Service() {
             val response = catPort.sendCommand(cmd, expectedLen)
             if (response != null && response.isNotEmpty()) {
                 val ack = response[0]
-                if (ack == 0x00.toByte() || ack == 0xF0.toByte()) {
+                if (ack == 0x00.toByte()) {
                     onSuccess?.invoke()
                 }
             }
@@ -251,7 +412,8 @@ class CatForegroundService : Service() {
         }
     }
 
-    private fun startPolling() {
+    private fun startPolling(forceRestart: Boolean = false) {
+        if (!forceRestart && pollingJob?.isActive == true) return
         pollingJob?.cancel()
         pollingJob = serviceScope.launch(Dispatchers.IO) {
             while (true) {
@@ -386,7 +548,7 @@ class CatForegroundService : Service() {
         when (state) {
             ConnectionState.CONNECTED -> {
                 title = if (radio.isPttActive) "TX: ${formatFrequency(radio.frequencyHz)}" else "RX: ${formatFrequency(radio.frequencyHz)}"
-                content = "Mode: ${formatMode(radio.mode)} | S-Meter: S${radio.sMeter}"
+                content = "Mode: ${CatProtocol.formatMode(radio.mode)} | S-Meter: S${radio.sMeter}"
             }
             ConnectionState.CONNECTING -> {
                 title = "Connecting..."
@@ -433,18 +595,4 @@ class CatForegroundService : Service() {
         return String.format(Locale.US, "%.4f MHz", mhz)
     }
 
-    private fun formatMode(mode: Byte): String {
-        return when (mode) {
-            CatProtocol.MODE_LSB -> "LSB"
-            CatProtocol.MODE_USB -> "USB"
-            CatProtocol.MODE_CW -> "CW"
-            CatProtocol.MODE_CW_R -> "CW-R"
-            CatProtocol.MODE_AM -> "AM"
-            CatProtocol.MODE_WFM -> "WFM"
-            CatProtocol.MODE_FM -> "FM"
-            CatProtocol.MODE_DIG -> "DIG"
-            CatProtocol.MODE_PKT -> "PKT"
-            else -> "UNKNOWN"
-        }
-    }
 }

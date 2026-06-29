@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -44,6 +45,7 @@ import com.spacemishka.app.ft_81xcompanion.ui.screens.DashboardScreen
 import com.spacemishka.app.ft_81xcompanion.ui.screens.LoggingScreen
 import com.spacemishka.app.ft_81xcompanion.ui.screens.SatelliteScreen
 import com.spacemishka.app.ft_81xcompanion.ui.screens.SettingsScreen
+import com.spacemishka.app.ft_81xcompanion.ui.screens.MorseScreen
 import com.spacemishka.app.ft_81xcompanion.ui.theme.FT81xCompanionTheme
 import com.spacemishka.app.ft_81xcompanion.ui.theme.RadioBlack
 import com.spacemishka.app.ft_81xcompanion.ui.theme.RadioCharcoal
@@ -188,8 +190,8 @@ fun MainAppContent(viewModel: MainViewModel) {
                 NavigationBarItem(
                     selected = selectedScreenIndex == 2,
                     onClick = { selectedScreenIndex = 2 },
-                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Logbook") },
-                    label = { Text("Logbook", fontSize = 10.sp) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Morse/CW") },
+                    label = { Text("Morse/CW", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = RadioOrange,
                         selectedTextColor = RadioOrange,
@@ -202,6 +204,20 @@ fun MainAppContent(viewModel: MainViewModel) {
                 NavigationBarItem(
                     selected = selectedScreenIndex == 3,
                     onClick = { selectedScreenIndex = 3 },
+                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Logbook") },
+                    label = { Text("Logbook", fontSize = 10.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = RadioOrange,
+                        selectedTextColor = RadioOrange,
+                        unselectedIconColor = Color.Gray,
+                        unselectedTextColor = Color.Gray,
+                        indicatorColor = RadioBlack
+                    )
+                )
+
+                NavigationBarItem(
+                    selected = selectedScreenIndex == 4,
+                    onClick = { selectedScreenIndex = 4 },
                     icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
                     label = { Text("Settings", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
@@ -224,8 +240,9 @@ fun MainAppContent(viewModel: MainViewModel) {
             when (selectedScreenIndex) {
                 0 -> DashboardScreen(viewModel = viewModel)
                 1 -> SatelliteScreen(viewModel = viewModel)
-                2 -> LoggingScreen(viewModel = viewModel)
-                3 -> SettingsScreen(viewModel = viewModel)
+                2 -> MorseScreen(viewModel = viewModel)
+                3 -> LoggingScreen(viewModel = viewModel)
+                4 -> SettingsScreen(viewModel = viewModel)
             }
         }
     }
