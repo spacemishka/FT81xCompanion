@@ -41,6 +41,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
     
     var showDirectEntryDialog by remember { mutableStateOf(false) }
     var tuningStepHz by remember { mutableStateOf(1000L) } // default 1 kHz
+    var isScanExpanded by remember { mutableStateOf(false) }
 
     val bands = listOf(
         BandPreset("160m", 1800000L, 2000000L, CatProtocol.MODE_LSB),
@@ -90,7 +91,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = formatMode(radioState.mode),
+                        text = CatProtocol.formatMode(radioState.mode),
                         color = RadioOrange,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -230,6 +231,169 @@ fun DashboardScreen(viewModel: MainViewModel) {
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(text = name, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        
+        // Smart-Scan Panel (Collapsible Card)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = RadioCharcoal),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Header (Click to toggle expansion)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isScanExpanded = !isScanExpanded },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically, 
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "SMART-SCANNER",
+                            color = RadioOrange,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        if (radioState.isScanActive) {
+                            Text(
+                                text = if (radioState.isScanPausedOnSignal) "[ PAUSED ON SIGNAL ]" else "[ SCANNING ]",
+                                color = if (radioState.isScanPausedOnSignal) RadioOrange else RadioGreen,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Text(
+                        text = if (isScanExpanded) "▲" else "▼",
+                        color = Color.Gray,
+                        fontSize = 11.sp
+                    )
+                }
+
+                if (isScanExpanded) {
+                    // Scanning Parameters Configuration
+                    var startFreqText by remember { mutableStateOf((radioState.scanStartFreqHz / 1_000_000.0).toString()) }
+                    var endFreqText by remember { mutableStateOf((radioState.scanEndFreqHz / 1_000_000.0).toString()) }
+                    var selectedStepHz by remember { mutableStateOf(radioState.scanStepHz) }
+                    val selectedDwellMs by remember { mutableStateOf(radioState.scanDwellMs) }
+                    var showStepDropdown by remember { mutableStateOf(false) }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = startFreqText,
+                            onValueChange = { startFreqText = it },
+                            label = { Text("Start (MHz)", color = Color.Gray, fontSize = 10.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = RadioOrange,
+                                unfocusedBorderColor = RadioPanel,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        OutlinedTextField(
+                            value = endFreqText,
+                            onValueChange = { endFreqText = it },
+                            label = { Text("End (MHz)", color = Color.Gray, fontSize = 10.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = RadioOrange,
+                                unfocusedBorderColor = RadioPanel,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "Step Size", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Box {
+                            val stepLabels = mapOf(
+                                5000L to "5 kHz",
+                                10000L to "10 kHz",
+                                12500L to "12.5 kHz",
+                                25000L to "25 kHz",
+                                50000L to "50 kHz",
+                                100000L to "100 kHz"
+                            )
+                            Button(
+                                onClick = { showStepDropdown = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = RadioPanel),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) {
+                                Text(text = stepLabels[selectedStepHz] ?: "12.5 kHz", color = RadioOrange, fontSize = 12.sp)
+                            }
+                            DropdownMenu(
+                                expanded = showStepDropdown,
+                                onDismissRequest = { showStepDropdown = false },
+                                modifier = Modifier.background(RadioPanel)
+                            ) {
+                                stepLabels.forEach { (stepHz, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(text = label, color = Color.White) },
+                                        onClick = {
+                                            selectedStepHz = stepHz
+                                            showStepDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Start/Stop Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val isScanning = radioState.isScanActive
+                        Button(
+                            onClick = {
+                                if (isScanning) {
+                                    viewModel.stopBandScan()
+                                } else {
+                                    val startHz = (startFreqText.toDoubleOrNull() ?: 144.0) * 1_000_000
+                                    val endHz = (endFreqText.toDoubleOrNull() ?: 146.0) * 1_000_000
+                                    viewModel.startBandScan(startHz.toLong(), endHz.toLong(), selectedStepHz, selectedDwellMs)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isScanning) RadioRed else RadioOrange
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (isScanning) "STOP SCAN" else "START SCAN",
+                                color = if (isScanning) Color.White else Color.Black,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -608,20 +772,6 @@ private fun formatFrequency(hz: Long): String {
     return String.format(Locale.US, "%,.4f MHz", mhz)
 }
 
-private fun formatMode(modeByte: Byte): String {
-    return when (modeByte) {
-        CatProtocol.MODE_LSB -> "LSB"
-        CatProtocol.MODE_USB -> "USB"
-        CatProtocol.MODE_CW -> "CW"
-        CatProtocol.MODE_CW_R -> "CW-R"
-        CatProtocol.MODE_AM -> "AM"
-        CatProtocol.MODE_WFM -> "WFM"
-        CatProtocol.MODE_FM -> "FM"
-        CatProtocol.MODE_DIG -> "DIG"
-        CatProtocol.MODE_PKT -> "PKT"
-        else -> "UNKNOWN"
-    }
-}
 
 private fun checkModeBandAppropriateness(modeName: String, frequencyHz: Long) {
     // Basic band-appropriateness warnings (informational)

@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spacemishka.app.ft_81xcompanion.service.ConnectionState
@@ -38,8 +39,8 @@ fun SettingsScreen(viewModel: MainViewModel) {
     var showDeviceDropdown by remember { mutableStateOf(false) }
     val pairedDevices = remember { viewModel.getPairedDevices() }
 
-    var selectedBaud by remember { mutableStateOf("9600") }
     var showBaudDropdown by remember { mutableStateOf(false) }
+    var showConnModeDropdown by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -49,7 +50,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Bluetooth Connection Panel
+        // 1. CAT Connection Panel
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = RadioCharcoal),
@@ -62,57 +63,99 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "BLUETOOTH CAT ADAPTER",
+                    text = "CAT CONNECTION ADAPTER",
                     color = RadioOrange,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
                 )
 
-                // Device selector
-                Box {
-                    Button(
-                        onClick = { showDeviceDropdown = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = RadioPanel),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                // Connection Mode Selector
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "Connection Type", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Box {
+                        Button(
+                            onClick = { showConnModeDropdown = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = RadioPanel),
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp)
                         ) {
-                            @Suppress("MissingPermission")
-                            val label = selectedDevice?.let { "${it.name} (${it.address})" } ?: "SELECT PAIRED DEVICE"
-                            Text(text = label, color = Color.White, fontSize = 14.sp)
-                            Text(text = "▼", color = Color.Gray, fontSize = 12.sp)
+                            Text(text = viewModel.connectionType, color = RadioOrange, fontSize = 12.sp)
                         }
-                    }
-
-                    DropdownMenu(
-                        expanded = showDeviceDropdown,
-                        onDismissRequest = { showDeviceDropdown = false },
-                        modifier = Modifier
-                            .fillMaxWidth(0.85f)
-                            .background(RadioPanel)
-                    ) {
-                        if (pairedDevices.isEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text("No paired devices found", color = Color.Gray) },
-                                onClick = { showDeviceDropdown = false }
-                            )
-                        } else {
-                            pairedDevices.forEach { dev ->
-                                @Suppress("MissingPermission")
+                        DropdownMenu(
+                            expanded = showConnModeDropdown,
+                            onDismissRequest = { showConnModeDropdown = false },
+                            modifier = Modifier.background(RadioPanel)
+                        ) {
+                            listOf("Bluetooth", "USB").forEach { mode ->
                                 DropdownMenuItem(
-                                    text = { Text("${dev.name} [${dev.address}]", color = Color.White) },
+                                    text = { Text(text = mode, color = Color.White) },
                                     onClick = {
-                                        selectedDevice = dev
-                                        showDeviceDropdown = false
+                                        viewModel.connectionType = mode
+                                        showConnModeDropdown = false
                                     }
                                 )
                             }
                         }
                     }
+                }
+
+                if (viewModel.connectionType == "Bluetooth") {
+                    // Device selector
+                    Box {
+                        Button(
+                            onClick = { showDeviceDropdown = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = RadioPanel),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                @Suppress("MissingPermission")
+                                val label = selectedDevice?.let { "${it.name} (${it.address})" } ?: "SELECT PAIRED DEVICE"
+                                Text(text = label, color = Color.White, fontSize = 14.sp)
+                                Text(text = "▼", color = Color.Gray, fontSize = 12.sp)
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = showDeviceDropdown,
+                            onDismissRequest = { showDeviceDropdown = false },
+                            modifier = Modifier
+                                .fillMaxWidth(0.85f)
+                                .background(RadioPanel)
+                        ) {
+                            if (pairedDevices.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("No paired devices found", color = Color.Gray) },
+                                    onClick = { showDeviceDropdown = false }
+                                )
+                            } else {
+                                pairedDevices.forEach { dev ->
+                                    @Suppress("MissingPermission")
+                                    DropdownMenuItem(
+                                        text = { Text("${dev.name} [${dev.address}]", color = Color.White) },
+                                        onClick = {
+                                            selectedDevice = dev
+                                            showDeviceDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "USB Mode: CAT will communicate over USB OTG connection. Click CONNECT below.",
+                        color = Color.Gray,
+                        fontSize = 12.sp
+                    )
                 }
 
                 // Connect/Disconnect Button
@@ -122,9 +165,14 @@ fun SettingsScreen(viewModel: MainViewModel) {
                         if (isConnected || isConnecting) {
                             viewModel.disconnectDevice()
                         } else {
-                            selectedDevice?.let {
-                                viewModel.connectDevice(it.address)
-                            } ?: Toast.makeText(context, "Please select a Bluetooth device first!", Toast.LENGTH_SHORT).show()
+                            if (viewModel.connectionType == "USB") {
+                                val baud = viewModel.uartBaudRate.toIntOrNull() ?: 9600
+                                viewModel.connectUsbDevice(baud)
+                            } else {
+                                selectedDevice?.let {
+                                    viewModel.connectDevice(it.address)
+                                } ?: Toast.makeText(context, "Please select a Bluetooth device first!", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -197,7 +245,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
                             shape = RoundedCornerShape(6.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp)
                         ) {
-                            Text(text = "$selectedBaud bps", color = RadioOrange, fontSize = 12.sp)
+                            Text(text = "${viewModel.uartBaudRate} bps", color = RadioOrange, fontSize = 12.sp)
                         }
 
                         DropdownMenu(
@@ -209,7 +257,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
                                 DropdownMenuItem(
                                     text = { Text(text = "$baud bps", color = Color.White) },
                                     onClick = {
-                                        selectedBaud = baud
+                                        viewModel.uartBaudRate = baud
                                         showBaudDropdown = false
                                     }
                                 )
@@ -250,6 +298,126 @@ fun SettingsScreen(viewModel: MainViewModel) {
                         )
                     }
                     Text(text = "3 min (Mandatory)", color = RadioGreen, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+
+        // 3. Cloud Log Syncing (HTTPS) Panel
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = RadioCharcoal),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "CLOUD LOG SYNCING (HTTPS)",
+                    color = RadioOrange,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+
+                // QRZ.com Sync Section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Sync to QRZ.com", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "Automatically uploads logged QSOs to QRZ logbook", color = Color.Gray, fontSize = 11.sp)
+                    }
+                    Checkbox(
+                        checked = viewModel.qrzSyncEnabled,
+                        onCheckedChange = { viewModel.qrzSyncEnabled = it },
+                        colors = CheckboxDefaults.colors(checkedColor = RadioOrange, uncheckedColor = Color.Gray)
+                    )
+                }
+
+                if (viewModel.qrzSyncEnabled) {
+                    OutlinedTextField(
+                        value = viewModel.qrzApiKey,
+                        onValueChange = { viewModel.qrzApiKey = it },
+                        label = { Text("QRZ API Key", color = Color.Gray) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = RadioOrange,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        singleLine = true
+                    )
+                }
+
+                HorizontalDivider(color = RadioPanel, thickness = 1.dp)
+
+                // CloudLog Sync Section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Sync to CloudLog", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "Automatically uploads logged QSOs to CloudLog", color = Color.Gray, fontSize = 11.sp)
+                    }
+                    Checkbox(
+                        checked = viewModel.cloudlogSyncEnabled,
+                        onCheckedChange = { viewModel.cloudlogSyncEnabled = it },
+                        colors = CheckboxDefaults.colors(checkedColor = RadioOrange, uncheckedColor = Color.Gray)
+                    )
+                }
+
+                if (viewModel.cloudlogSyncEnabled) {
+                    OutlinedTextField(
+                        value = viewModel.cloudlogUrl,
+                        onValueChange = { viewModel.cloudlogUrl = it },
+                        label = { Text("CloudLog Server URL (Enforces HTTPS)", color = Color.Gray) },
+                        placeholder = { Text("https://log.example.com", color = Color.DarkGray) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = RadioOrange,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = viewModel.cloudlogApiKey,
+                        onValueChange = { viewModel.cloudlogApiKey = it },
+                        label = { Text("CloudLog API Key", color = Color.Gray) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = RadioOrange,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = viewModel.cloudlogStationId,
+                        onValueChange = { viewModel.cloudlogStationId = it },
+                        label = { Text("CloudLog Station Profile ID", color = Color.Gray) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = RadioOrange,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        singleLine = true
+                    )
                 }
             }
         }

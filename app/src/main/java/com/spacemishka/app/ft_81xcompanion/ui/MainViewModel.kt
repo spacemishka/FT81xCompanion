@@ -164,6 +164,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
             prefs.edit().putFloat("morse_sidetone_freq", value).apply()
         }
 
+    // FT8CN new features settings (connection, security, auto-log syncing)
+    private val _connectionType = mutableStateOf(prefs.getString("connection_type", "Bluetooth") ?: "Bluetooth")
+    var connectionType: String
+        get() = _connectionType.value
+        set(value) {
+            _connectionType.value = value
+            prefs.edit().putString("connection_type", value).apply()
+        }
+
+    private val _uartBaudRate = mutableStateOf(prefs.getString("uart_baud_rate", "9600") ?: "9600")
+    var uartBaudRate: String
+        get() = _uartBaudRate.value
+        set(value) {
+            _uartBaudRate.value = value
+            prefs.edit().putString("uart_baud_rate", value).apply()
+        }
+
+    private val _qrzApiKey = mutableStateOf(prefs.getString("qrz_api_key", "") ?: "")
+    var qrzApiKey: String
+        get() = _qrzApiKey.value
+        set(value) {
+            _qrzApiKey.value = value
+            prefs.edit().putString("qrz_api_key", value).apply()
+        }
+
+    private val _qrzSyncEnabled = mutableStateOf(prefs.getBoolean("qrz_sync_enabled", false))
+    var qrzSyncEnabled: Boolean
+        get() = _qrzSyncEnabled.value
+        set(value) {
+            _qrzSyncEnabled.value = value
+            prefs.edit().putBoolean("qrz_sync_enabled", value).apply()
+        }
+
+    private val _cloudlogUrl = mutableStateOf(prefs.getString("cloudlog_url", "") ?: "")
+    var cloudlogUrl: String
+        get() = _cloudlogUrl.value
+        set(value) {
+            _cloudlogUrl.value = value
+            prefs.edit().putString("cloudlog_url", value).apply()
+        }
+
+    private val _cloudlogApiKey = mutableStateOf(prefs.getString("cloudlog_api_key", "") ?: "")
+    var cloudlogApiKey: String
+        get() = _cloudlogApiKey.value
+        set(value) {
+            _cloudlogApiKey.value = value
+            prefs.edit().putString("cloudlog_api_key", value).apply()
+        }
+
+    private val _cloudlogStationId = mutableStateOf(prefs.getString("cloudlog_station_id", "") ?: "")
+    var cloudlogStationId: String
+        get() = _cloudlogStationId.value
+        set(value) {
+            _cloudlogStationId.value = value
+            prefs.edit().putString("cloudlog_station_id", value).apply()
+        }
+
+    private val _cloudlogSyncEnabled = mutableStateOf(prefs.getBoolean("cloudlog_sync_enabled", false))
+    var cloudlogSyncEnabled: Boolean
+        get() = _cloudlogSyncEnabled.value
+        set(value) {
+            _cloudlogSyncEnabled.value = value
+            prefs.edit().putBoolean("cloudlog_sync_enabled", value).apply()
+        }
+
+    private val _myMaidenheadGrid = mutableStateOf(prefs.getString("my_maidenhead_grid", "FN31ub") ?: "FN31ub")
+    var myMaidenheadGrid: String
+        get() = _myMaidenheadGrid.value
+        set(value) {
+            _myMaidenheadGrid.value = value
+            prefs.edit().putString("my_maidenhead_grid", value).apply()
+        }
+
     private var satelliteJob: Job? = null
     private var serviceCollectorJob: Job? = null
 
@@ -258,6 +331,107 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
             )
             dbHelper.insertQso(newQso)
             loadDatabaseContents()
+            
+            // Asynchronously sync contact securely over HTTPS
+            uploadQsoToCloud(newQso)
+        }
+    }
+
+    private fun uploadQsoToCloud(qso: Qso) {
+        if (qrzSyncEnabled && qrzApiKey.isNotBlank()) {
+            uploadToQrz(qso, qrzApiKey)
+        }
+        if (cloudlogSyncEnabled && cloudlogApiKey.isNotBlank() && cloudlogUrl.isNotBlank()) {
+            uploadToCloudlog(qso, cloudlogUrl, cloudlogApiKey, cloudlogStationId)
+        }
+    }
+
+    private fun uploadToQrz(qso: Qso, apiKey: String) {
+        val adif = dbHelper.exportToAdif(listOf(qso))
+        viewModelScope.launch(Dispatchers.IO) {
+            var conn: javax.net.ssl.HttpsURLConnection? = null
+            try {
+                val url = java.net.URL("https://logbook.qrz.com/api")
+                conn = url.openConnection() as javax.net.ssl.HttpsURLConnection
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                
+                val postData = "KEY=" + java.net.URLEncoder.encode(apiKey, "UTF-8") +
+                               "&ACTION=INSERT" +
+                               "&ADIF=" + java.net.URLEncoder.encode(adif, "UTF-8")
+                
+                conn.outputStream.use { os ->
+                    os.write(postData.toByteArray(Charsets.UTF_8))
+                }
+                
+                val responseCode = conn.responseCode
+                if (responseCode == 200) {
+                    val response = conn.inputStream.bufferedReader().use { it.readText() }
+                    Log.d("CloudSync", "QRZ sync response success.")
+                } else {
+                    Log.e("CloudSync", "QRZ sync failed with HTTP code $responseCode")
+                }
+            } catch (e: Exception) {
+                Log.e("CloudSync", "Exception during QRZ sync upload", e)
+            } finally {
+                conn?.disconnect()
+            }
+        }
+    }
+
+    private fun uploadToCloudlog(qso: Qso, serverUrl: String, apiKey: String, stationId: String) {
+        val adif = dbHelper.exportToAdif(listOf(qso))
+        viewModelScope.launch(Dispatchers.IO) {
+            // Clean & upgrade URL to HTTPS to protect API keys in transit
+            var secureUrl = serverUrl.trim()
+            if (!secureUrl.startsWith("https://", ignoreCase = true)) {
+                if (secureUrl.startsWith("http://", ignoreCase = true)) {
+                    secureUrl = "https://" + secureUrl.substring(7)
+                } else {
+                    secureUrl = "https://$secureUrl"
+                }
+            }
+            if (secureUrl.endsWith("/")) {
+                secureUrl = secureUrl.dropLast(1)
+            }
+            val apiEndpoint = if (secureUrl.endsWith("/api/qso")) secureUrl else "$secureUrl/index.php/api/qso"
+            
+            var conn: javax.net.ssl.HttpsURLConnection? = null
+            try {
+                val url = java.net.URL(apiEndpoint)
+                conn = url.openConnection() as javax.net.ssl.HttpsURLConnection
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                
+                // Construct payload securely
+                val escapedAdif = adif.replace("\n", "\\n").replace("\"", "\\\"")
+                val json = """
+                    {
+                        "key": "$apiKey",
+                        "station_profile_id": "$stationId",
+                        "type": "adif",
+                        "string": "$escapedAdif"
+                    }
+                """.trimIndent()
+                
+                conn.outputStream.use { os ->
+                    os.write(json.toByteArray(Charsets.UTF_8))
+                }
+                
+                val responseCode = conn.responseCode
+                if (responseCode == 200 || responseCode == 201) {
+                    val response = conn.inputStream.bufferedReader().use { it.readText() }
+                    Log.d("CloudSync", "CloudLog sync success.")
+                } else {
+                    Log.e("CloudSync", "CloudLog sync failed with HTTP code $responseCode")
+                }
+            } catch (e: Exception) {
+                Log.e("CloudSync", "Exception during CloudLog sync upload", e)
+            } finally {
+                conn?.disconnect()
+            }
         }
     }
 
@@ -299,11 +473,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
 
     fun connectDevice(address: String) {
         lastConnectedMacAddress = address
-        boundService?.connectDevice(address)
+        if (connectionType == "USB") {
+            val baud = uartBaudRate.toIntOrNull() ?: 9600
+            boundService?.connectUsbDevice(baud)
+        } else {
+            boundService?.connectDevice(address)
+        }
+    }
+
+    fun connectUsbDevice(baudRate: Int) {
+        boundService?.connectUsbDevice(baudRate)
     }
 
     fun disconnectDevice() {
         boundService?.disconnectDevice()
+    }
+
+    fun startBandScan(startHz: Long, endHz: Long, stepHz: Long, dwellMs: Long) {
+        boundService?.startScan(startHz, endHz, stepHz, dwellMs)
+    }
+
+    fun stopBandScan() {
+        boundService?.stopScan()
     }
 
     fun setFrequency(hz: Long) {
@@ -456,7 +647,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
             // Get last known location first
             val gpsLoc = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             val netLoc = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            observerLocation = gpsLoc ?: netLoc
+            val loc = gpsLoc ?: netLoc
+            observerLocation = loc
+            if (loc != null) {
+                myMaidenheadGrid = com.spacemishka.app.ft_81xcompanion.utils.MaidenheadLocator.latLonToGrid(loc.latitude, loc.longitude)
+            }
 
             // Request updates
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -473,6 +668,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
 
     override fun onLocationChanged(location: Location) {
         observerLocation = location
+        myMaidenheadGrid = com.spacemishka.app.ft_81xcompanion.utils.MaidenheadLocator.latLonToGrid(location.latitude, location.longitude)
     }
 
     // DX Cluster
@@ -489,8 +685,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
     }
 
     private fun observeDxSpots() {
+        val gridPattern = java.util.regex.Pattern.compile("\\b([A-R]{2}[0-9]{2})\\b", java.util.regex.Pattern.CASE_INSENSITIVE)
         viewModelScope.launch {
             dxClient.spots.collect { spot ->
+                // Parse grid from comment if present
+                val matcher = gridPattern.matcher(spot.comment)
+                if (matcher.find()) {
+                    val spotGrid = matcher.group(1)?.uppercase(Locale.US)
+                    if (spotGrid != null && myMaidenheadGrid.isNotBlank()) {
+                        val result = com.spacemishka.app.ft_81xcompanion.utils.MaidenheadLocator.calculateDistanceAndBearing(
+                            myMaidenheadGrid,
+                            spotGrid
+                        )
+                        if (result != null) {
+                            spot.distanceKm = result.first
+                            spot.bearing = result.second
+                            spot.direction = com.spacemishka.app.ft_81xcompanion.utils.MaidenheadLocator.getCardinalDirection(result.second)
+                        }
+                    }
+                }
+
                 val current = _dxSpots.value.toMutableList()
                 current.add(0, spot) // insert at top
                 if (current.size > 100) {

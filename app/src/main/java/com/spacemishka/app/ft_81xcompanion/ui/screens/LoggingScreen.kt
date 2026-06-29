@@ -522,6 +522,14 @@ fun DxSpotRow(spot: DxSpot, onQsy: () -> Unit) {
             Column(modifier = Modifier.weight(1.2f)) {
                 Text(text = spot.dxCall, color = RadioAmber, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Text(text = "de ${spot.spotter}", color = Color.Gray, fontSize = 10.sp)
+                spot.distanceKm?.let { dist ->
+                    Text(
+                        text = "${dist.toInt()} km ${spot.bearing?.let { "@ ${it.toInt()}° " } ?: ""}${spot.direction ?: ""}",
+                        color = RadioGreen,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             Column(

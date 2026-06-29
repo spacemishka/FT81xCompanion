@@ -25,7 +25,10 @@ data class DxSpot(
     val frequencyKhz: Double,
     val dxCall: String,
     val comment: String,
-    val time: String
+    val time: String,
+    var distanceKm: Double? = null,
+    var bearing: Double? = null,
+    var direction: String? = null
 )
 
 class DxClusterClient(private val scope: CoroutineScope) {
