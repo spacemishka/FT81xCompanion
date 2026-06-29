@@ -296,7 +296,7 @@ fun MorseScreen(viewModel: MainViewModel) {
                                                 pressed = true,
                                                 keyRadio = keyRadio,
                                                 playSound = playSound,
-                                                sidetoneFreqHz = sidetoneFreq.toInt()
+                                                sidetoneFreqHz = sidetoneFreq
                                             )
                                             waitForUpOrCancellation()
                                             isKeyPressed = false
@@ -304,7 +304,7 @@ fun MorseScreen(viewModel: MainViewModel) {
                                                 pressed = false,
                                                 keyRadio = keyRadio,
                                                 playSound = playSound,
-                                                sidetoneFreqHz = sidetoneFreq.toInt()
+                                                sidetoneFreqHz = sidetoneFreq
                                             )
                                         }
                                     }
@@ -547,7 +547,7 @@ fun MorseScreen(viewModel: MainViewModel) {
                                     text = messageText,
                                     wpm = wpmSpeed.toInt(),
                                     farnsworthWpm = farnsworthWpm.toInt(),
-                                    sidetoneFreqHz = sidetoneFreq.toInt(),
+                                    sidetoneFreqHz = sidetoneFreq,
                                     keyRadio = keyRadio,
                                     playSound = playSound
                                 )

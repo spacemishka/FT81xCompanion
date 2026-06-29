@@ -2,7 +2,6 @@ package com.spacemishka.app.ft_81xcompanion.ui
 
 import android.annotation.SuppressLint
 import android.app.Application
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.ComponentName
@@ -39,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -79,7 +79,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
         private set
 
     // DX Cluster states
-    val dxSpots = MutableStateFlow<List<DxSpot>>(emptyList())
+    private val _dxSpots = MutableStateFlow<List<DxSpot>>(emptyList())
+    val dxSpots: StateFlow<List<DxSpot>> = _dxSpots.asStateFlow()
     val isDxConnected = dxClient.isConnected
 
     // Satellite Tracking States
@@ -231,8 +232,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
 
     fun loadDatabaseContents() {
         viewModelScope.launch(Dispatchers.IO) {
-            qsoList = dbHelper.getAllQsos()
-            repeaterList = dbHelper.getAllRepeaters()
+            val qsos = dbHelper.getAllQsos()
+            val repeaters = dbHelper.getAllRepeaters()
+            withContext(Dispatchers.Main) {
+                qsoList = qsos
+                repeaterList = repeaters
+            }
         }
     }
 
@@ -355,7 +360,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
 
     // Morse controls forwarded to service
 
-    fun transmitMorse(text: String, wpm: Int, farnsworthWpm: Int, sidetoneFreqHz: Int, keyRadio: Boolean, playSound: Boolean) {
+    fun transmitMorse(text: String, wpm: Int, farnsworthWpm: Int, sidetoneFreqHz: Float, keyRadio: Boolean, playSound: Boolean) {
         boundService?.transmitMorse(text, wpm, farnsworthWpm, sidetoneFreqHz, keyRadio, playSound)
     }
 
@@ -363,7 +368,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
         boundService?.stopMorse()
     }
 
-    fun setManualKey(pressed: Boolean, keyRadio: Boolean, playSound: Boolean, sidetoneFreqHz: Int) {
+    fun setManualKey(pressed: Boolean, keyRadio: Boolean, playSound: Boolean, sidetoneFreqHz: Float) {
         boundService?.setManualKey(pressed, keyRadio, playSound, sidetoneFreqHz)
     }
 
@@ -414,7 +419,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
                         uplinkFreqHz = satUplinkFreqHz,
                         time = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
                     )
-                    satelliteState = state
+                    withContext(Dispatchers.Main) {
+                        satelliteState = state
+                    }
 
                     // If active, adjust VFO-A (RX/downlink) and VFO-B (TX/uplink) Doppler shift
                     if (isDopplerTrackingActive && state.isVisible && boundService?.connectionState?.value == ConnectionState.CONNECTED) {
@@ -432,7 +439,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
                         // To avoid doing this too fast, we only do it if the shift changes significantly (e.g. by > 50 Hz).
                     }
                 } else {
-                    satelliteState = null
+                    withContext(Dispatchers.Main) {
+                        satelliteState = null
+                    }
                 }
                 delay(1000L) // 1 Hz loop
             }
@@ -482,12 +491,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application), L
     private fun observeDxSpots() {
         viewModelScope.launch {
             dxClient.spots.collect { spot ->
-                val current = dxSpots.value.toMutableList()
+                val current = _dxSpots.value.toMutableList()
                 current.add(0, spot) // insert at top
                 if (current.size > 100) {
                     current.removeLast() // keep max 100 spots
                 }
-                dxSpots.value = current
+                _dxSpots.value = current
             }
         }
     }

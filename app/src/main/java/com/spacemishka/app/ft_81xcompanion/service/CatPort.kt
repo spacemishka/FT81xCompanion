@@ -107,21 +107,19 @@ class CatPort {
         }
     }
 
-    fun closeSocket() {
-        synchronized(this) {
-            try {
-                inputStream?.close()
-            } catch (ignored: Exception) {}
-            try {
-                outputStream?.close()
-            } catch (ignored: Exception) {}
-            try {
-                bluetoothSocket?.close()
-            } catch (ignored: Exception) {}
-            inputStream = null
-            outputStream = null
-            bluetoothSocket = null
-        }
+    private fun closeSocket() {
+        try {
+            inputStream?.close()
+        } catch (ignored: Exception) {}
+        try {
+            outputStream?.close()
+        } catch (ignored: Exception) {}
+        try {
+            bluetoothSocket?.close()
+        } catch (ignored: Exception) {}
+        inputStream = null
+        outputStream = null
+        bluetoothSocket = null
     }
 
     /**

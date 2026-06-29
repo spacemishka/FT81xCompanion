@@ -31,6 +31,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.runBlocking
 import java.util.Locale
 
 data class RadioState(
@@ -57,7 +58,7 @@ data class ManualKeyEvent(
     val pressed: Boolean,
     val keyRadio: Boolean,
     val playSound: Boolean,
-    val sidetoneFreqHz: Int
+    val sidetoneFreqHz: Float
 )
 
 class CatForegroundService : Service() {
@@ -113,14 +114,16 @@ class CatForegroundService : Service() {
         Log.d(TAG, "Service onDestroy")
         // Ensure transmitter is unkeyed before shutting down
         if (_radioState.value.isPttActive) {
-            serviceScope.launch(Dispatchers.IO) {
+            runBlocking(Dispatchers.IO) {
                 catPort.sendCommand(CatProtocol.buildPttOff(), 1)
             }
         }
         sidetonePlayer.release()
         manualKeyChannel.close()
         serviceScope.cancel()
-        catPort.closeSocket()
+        runBlocking(Dispatchers.IO) {
+            catPort.disconnect()
+        }
         super.onDestroy()
     }
 
@@ -232,7 +235,7 @@ class CatForegroundService : Service() {
         text: String,
         wpm: Int,
         farnsworthWpm: Int,
-        sidetoneFreqHz: Int,
+        sidetoneFreqHz: Float,
         keyRadio: Boolean,
         playSound: Boolean
     ) {
@@ -256,13 +259,19 @@ class CatForegroundService : Service() {
                 morseCurrentCharIndex = 0
             )
 
-            val charUnitMs = 1200L / farnsworthWpm
-            val wpmUnitMs = 1200L / wpm
+            val ta = 1200L / farnsworthWpm
+            val tb = 1200L / wpm
+            val ts = if (farnsworthWpm > wpm) {
+                maxOf(ta, (60000L / wpm - 31L * ta) / 19L)
+            } else {
+                ta
+            }
 
-            val charSpaceMs = Math.max(charUnitMs, 3 * wpmUnitMs - charUnitMs)
-            val wordSpaceMs = Math.max(charUnitMs * 4, 7 * wpmUnitMs - charSpaceMs - charUnitMs)
+            val charSpaceMs = maxOf(ta, 3 * ts - ta)
+            val wordSpaceMs = maxOf(ta * 4, 4 * ts)
 
             try {
+                if (playSound) sidetonePlayer.start()
                 for (i in upperText.indices) {
                     _radioState.value = _radioState.value.copy(morseCurrentCharIndex = i)
                     val char = upperText[i]
@@ -275,16 +284,16 @@ class CatForegroundService : Service() {
                     val code = MorseTranslator.getMorse(char)
                     if (code == null) {
                         // Unknown characters generate a small gap
-                        delay(charUnitMs * 2)
+                        delay(ta * 2)
                         continue
                     }
 
                     for (j in code.indices) {
                         val symbol = code[j]
-                        val symbolDuration = if (symbol == '.') charUnitMs else charUnitMs * 3
+                        val symbolDuration = if (symbol == '.') ta else ta * 3
 
                         // Turn on keying
-                        if (playSound) sidetonePlayer.start()
+                        if (playSound) sidetonePlayer.playTone()
                         if (keyRadio && connectionState.value == ConnectionState.CONNECTED) {
                             catPort.sendCommand(CatProtocol.buildPttOn(), 1)
                         }
@@ -293,13 +302,13 @@ class CatForegroundService : Service() {
                         delay(symbolDuration)
 
                         // Turn off keying
-                        if (playSound) sidetonePlayer.stop()
+                        if (playSound) sidetonePlayer.pauseTone()
                         if (keyRadio && connectionState.value == ConnectionState.CONNECTED) {
                             catPort.sendCommand(CatProtocol.buildPttOff(), 1)
                         }
 
                         // Element space is 1 unit
-                        delay(charUnitMs)
+                        delay(ta)
                     }
 
                     // Character space spacing
@@ -331,7 +340,7 @@ class CatForegroundService : Service() {
         morseJob?.cancel()
     }
 
-    fun setManualKey(pressed: Boolean, keyRadio: Boolean, playSound: Boolean, sidetoneFreqHz: Int) {
+    fun setManualKey(pressed: Boolean, keyRadio: Boolean, playSound: Boolean, sidetoneFreqHz: Float) {
         manualKeyChannel.trySend(ManualKeyEvent(pressed, keyRadio, playSound, sidetoneFreqHz))
     }
 

@@ -119,6 +119,36 @@ class MorseSidetonePlayer(private val context: Context) {
     }
 
     /**
+     * Starts playing the sidetone without requesting audio focus.
+     */
+    fun playTone() {
+        synchronized(lock) {
+            if (audioTrack == null) {
+                initAudioTrack()
+            }
+            try {
+                audioTrack?.play()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error playing tone", e)
+            }
+        }
+    }
+
+    /**
+     * Pauses playing the sidetone without abandoning audio focus.
+     */
+    fun pauseTone() {
+        synchronized(lock) {
+            try {
+                audioTrack?.pause()
+                audioTrack?.reloadStaticData()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error pausing tone", e)
+            }
+        }
+    }
+
+    /**
      * Releases system resources.
      */
     fun release() {
