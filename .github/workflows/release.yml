@@ -29,16 +29,18 @@ jobs:
       - name: Build Release APK
         run: ./gradlew assembleRelease
 
-      - name: Locate Built APK File
+      - name: Locate and Rename APK File
         id: find_apk
         run: |
-          APK_PATH=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
-          if [ -z "$APK_PATH" ]; then
+          ORIG_APK=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
+          if [ -z "$ORIG_APK" ]; then
             echo "Error: No release APK found!"
             exit 1
           fi
-          echo "Found APK: $APK_PATH"
-          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          NEW_APK="app/build/outputs/apk/release/FT81xCompanion-${{ github.ref_name }}.apk"
+          mv "$ORIG_APK" "$NEW_APK"
+          echo "Renamed APK to: $NEW_APK"
+          echo "apk_path=$NEW_APK" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
