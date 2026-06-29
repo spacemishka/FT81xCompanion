@@ -37,7 +37,7 @@ jobs:
             echo "Error: No release APK found!"
             exit 1
           fi
-          NEW_APK="app/build/outputs/apk/release/MorseTrainer-${{ github.ref_name }}.apk"
+          NEW_APK="app/build/outputs/apk/release/FT81xCompanion-${{ github.ref_name }}.apk"
           mv "$ORIG_APK" "$NEW_APK"
           echo "Renamed APK to: $NEW_APK"
           echo "apk_path=$NEW_APK" >> $GITHUB_OUTPUT

@@ -1,0 +1,5 @@
+- [x] Integrate Smart-Scan parameters into RadioState and service loop in CatForegroundService.kt
+- [x] Implement startScan/stopScan service API with pause-on-squelch logic in CatForegroundService.kt
+- [x] Add startBandScan/stopBandScan interfaces in MainViewModel.kt
+- [x] Build Smart-Scan card panel with start/end frequencies and step selector in DashboardScreen.kt
+- [x] Verify build and compile success
